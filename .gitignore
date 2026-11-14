@@ -1,0 +1,9 @@
+dati/
+_build/
+rilascio/
+_vecchio/
+__pycache__/
+*.pyc
+*.spec
+impronte.py
+LEGGIMI.txt

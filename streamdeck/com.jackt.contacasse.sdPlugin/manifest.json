@@ -1,0 +1,87 @@
+{
+  "SDKVersion": 2,
+  "Name": "ContaCasse",
+  "Author": "JackT",
+  "Version": "1.2.0",
+  "Description": "Tasti per ContaCasse, il contatore automatico delle casse aperte su Fortnite: +1, -1, il numero sul tasto (tenuto 2 s = azzera) e la pausa. ContaCasse deve essere acceso sul PC.",
+  "Category": "ContaCasse",
+  "CategoryIcon": "imgs/categoryIcon",
+  "Icon": "imgs/pluginIcon",
+  "CodePath": "plugin/index.html",
+  "Software": {
+    "MinimumVersion": "6.0"
+  },
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "Actions": [
+    {
+      "UUID": "com.jackt.contacasse.piu",
+      "Name": "+1 cassa",
+      "Icon": "imgs/actionPiu",
+      "Tooltip": "Aggiunge una cassa al contatore.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/keyPiu"
+        }
+      ]
+    },
+    {
+      "UUID": "com.jackt.contacasse.meno",
+      "Name": "-1 cassa",
+      "Icon": "imgs/actionMeno",
+      "Tooltip": "Toglie una cassa dal contatore.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/keyMeno"
+        }
+      ]
+    },
+    {
+      "UUID": "com.jackt.contacasse.contatore",
+      "Name": "Contatore casse",
+      "Icon": "imgs/actionContatore",
+      "Tooltip": "Mostra il numero di casse (si aggiorna da solo). Tienilo premuto 2 secondi per azzerarlo.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/keyContatore"
+        }
+      ]
+    },
+    {
+      "UUID": "com.jackt.contacasse.pausa",
+      "Name": "Pausa conteggio",
+      "Icon": "imgs/actionPausa",
+      "Tooltip": "Mette in pausa il conteggio automatico (es. mentre specti qualcuno) e lo fa ripartire. +1 e -1 a mano funzionano lo stesso.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "DisableAutomaticStates": true,
+      "States": [
+        {
+          "Image": "imgs/keyAttivo"
+        },
+        {
+          "Image": "imgs/keyPausa"
+        }
+      ]
+    }
+  ],
+  "URL": "https://discord.gg/NjnRuPt3hn"
+}
