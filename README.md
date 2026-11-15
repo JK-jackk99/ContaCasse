@@ -46,7 +46,7 @@ Nella categoria **ContaCasse** trovi 4 tasti: +1, −1, Contatore (mostra il num
 ## Come capisce che hai aperto una cassa
 
 Guarda lo schermo, come fa OBS: c'è la scritta per aprire la cassa, premi il tasto, la scritta sparisce → cassa aperta.
-Le cassette di munizioni hanno la stessa scritta ma niente oro, quindi non contano.
+Contano tutte le casse (oro, argento, quelle col cristallo...). Le cassette di munizioni hanno la stessa scritta ma sono verdi, quindi non contano.
 
 ## È sicuro?
 

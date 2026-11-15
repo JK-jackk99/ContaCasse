@@ -182,7 +182,7 @@
         <input type="range" id="sogliaS" min="0.40" max="0.95" step="0.01">
         <b id="sogliaSN">0.80</b>
       </div>
-      <p class="aiuto">Conta quando la scritta della cassa è a schermo, premi il tasto per aprire e la scritta sparisce entro 2,5 s. Se sotto il mirino non c'è l'oro della cassa (es. cassetta di munizioni) non conta.</p>
+      <p class="aiuto">Conta quando la scritta della cassa è a schermo, premi il tasto per aprire e la scritta sparisce entro 2,5 s. Se sotto il mirino c'è il verde spento della cassetta di munizioni non conta.</p>
       <p class="aiuto" style="margin-top:12px">Scritte che riconosce (per altre modalità, es. «CERCA», ritagliane una a mano):</p>
       <ul class="campioni" id="modelli" style="margin-top:6px"></ul>
       <div class="riga">
@@ -200,7 +200,7 @@
       </div>
       <div class="riga">
         <button id="vedi">Cosa vedo adesso</button>
-        <span class="piccolo">scritta: verde = trovata · mirino: giallo = oro della cassa, viola = niente oro</span>
+        <span class="piccolo">scritta: verde = trovata · mirino: giallo = conta, viola = munizioni</span>
       </div>
       <img id="visto" alt="Zona guardata" hidden style="max-width:100%;border-radius:8px;border:1px solid var(--linea)">
     </details>
@@ -469,7 +469,7 @@ carica().then(() => {
     const d = JSON.parse(e.data);
     $("barraS").style.width = Math.max(0, Math.min(1, d.s)) * 100 + "%";
     $("barraS").classList.toggle("sopra", d.vis);
-    $("scrittaS").textContent = `${Math.max(0, d.s).toFixed(2)} · ${d.vis ? "scritta VISTA" : "nessuna scritta"} · oro sotto il mirino ${(d.oro ?? 0).toFixed(2)}${d.munizioni ? " (non è una cassa)" : " (cassa)"}`;
+    $("scrittaS").textContent = `${Math.max(0, d.s).toFixed(2)} · ${d.vis ? "scritta VISTA" : "nessuna scritta"} · verde sotto il mirino ${(d.verde ?? 0).toFixed(2)}${d.munizioni ? " (munizioni: non conta)" : ""}`;
   });
   es.onerror = () => { $("pallino").classList.remove("ok"); $("stato").textContent = "ContaCasse è spento? Riaprilo"; };
   es.onopen = () => { if (S) carica(); };

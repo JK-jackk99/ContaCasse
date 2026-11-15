@@ -11,20 +11,24 @@ FPS = 20
 FINESTRA_APERTURA = 2.5
 SPARITA_PER = 0.2
 PAUSA = 1.0
-ORO_CASSA_MINIMO = 0.16
+VERDE_MUNIZIONI = 0.25
+ORO_MINIMO = 0.15
 ALTEZZA_BASE = 1440
 
 
-def oro_cassa(img):
+def colori(img):
     if img is None or img.size == 0:
-        return 0.0
+        return 0.0, 0.0
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
-    return float(((h >= 8) & (h <= 35) & (s >= 170) & (v >= 100)).mean())
+    verde = (h >= 18) & (h <= 87) & (s >= 45) & (s <= 190) & (v >= 35) & (v <= 150)
+    oro = (h >= 8) & (h <= 35) & (s >= 170) & (v >= 100)
+    return float(verde.mean()), float(oro.mean())
 
 
-def e_munizioni(oro, cfg=None):
-    return oro < float((cfg or {}).get("oro_cassa_minimo", ORO_CASSA_MINIMO))
+def e_munizioni(verde, oro, cfg=None):
+    cfg = cfg or {}
+    return verde >= float(cfg.get("verde_munizioni", VERDE_MUNIZIONI)) and oro < float(cfg.get("oro_minimo", ORO_MINIMO))
 
 
 def prepara(img):
@@ -122,8 +126,9 @@ class Occhio:
         self.ultimo_evento = 0.0
         self.picco = 0.0
         self.avviso_nero = 0.0
+        self.verde = 0.0
         self.oro = 0.0
-        self.storia_oro = deque(maxlen=200)
+        self.storia_colori = deque(maxlen=200)
 
     def carica(self):
         try:
@@ -238,9 +243,9 @@ class Occhio:
         Y2 = max([m["cerca"][1] + m["cerca"][3] for m in self.attivi] + [oy + oh])
         return X, Y, X2, Y2
 
-    def _oro(self, zona, X, Y):
+    def _colori(self, zona, X, Y):
         mx, my, mw, mh = self._mirino()
-        return oro_cassa(zona[my - Y:my - Y + mh, mx - X:mx - X + mw])
+        return colori(zona[my - Y:my - Y + mh, mx - X:mx - X + mw])
 
     def avvia(self):
         threading.Thread(target=self._ciclo, daemon=True, name="schermo").start()
@@ -302,7 +307,7 @@ class Occhio:
         if zona is None:
             return
         self.visto = zona
-        self.oro = self._oro(zona, X, Y)
+        self.verde, self.oro = self._colori(zona, X, Y)
         grigio = prepara(zona)
         if float(grigio.mean()) < 2 and adesso - self.avviso_nero > 30:
             self.avviso_nero = adesso
@@ -320,7 +325,7 @@ class Occhio:
         self.picco = max(self.picco, migliore)
         ora_visibile = migliore >= float(cfg.get("soglia_schermo", 0.8))
         if ora_visibile:
-            self.storia_oro.append((adesso, self.oro))
+            self.storia_colori.append((adesso, self.verde, self.oro))
             self.ultimo_visibile = adesso
             self.sparita_da = 0.0
         elif self.visibile:
@@ -333,13 +338,16 @@ class Occhio:
                        and adesso - self.sparita_da >= SPARITA_PER)
             if sparita and adesso - a <= FINESTRA_APERTURA + SPARITA_PER:
                 self.attesa = None
-                valori = [o for (t, o) in self.storia_oro if t >= a - 0.5]
-                oro = float(np.median(valori)) if valori else self.oro
-                if e_munizioni(oro, cfg):
-                    self.app.scrivi(f"Niente oro sotto il mirino (oro {oro:.2f}): cassetta di munizioni, non conto")
+                valori = [(v, o) for (t, v, o) in self.storia_colori if t >= a - 0.5]
+                if valori:
+                    verde, oro = (float(x) for x in np.median(np.array(valori), axis=0))
+                else:
+                    verde, oro = self.verde, self.oro
+                if e_munizioni(verde, oro, cfg):
+                    self.app.scrivi(f"Verde sotto il mirino (verde {verde:.2f}): cassetta di munizioni, non conto")
                 elif cfg.get("automatico", True) and adesso >= self.bloccato_fino:
                     self.bloccato_fino = adesso + PAUSA
-                    self.app.cambia("piu", motivo=f"Cassa aperta (oro {oro:.2f})")
+                    self.app.cambia("piu", motivo=f"Cassa aperta (verde {verde:.2f}, oro {oro:.2f})")
             elif adesso - a > FINESTRA_APERTURA + SPARITA_PER:
                 self.attesa = None
                 if ora_visibile:
@@ -348,8 +356,8 @@ class Occhio:
         if adesso - self.ultimo_evento >= 0.1:
             self.ultimo_evento = adesso
             self.app.bacheca.pubblica("schermo", {"s": round(self.picco, 3), "vis": self.visibile,
-                                                  "oro": round(self.oro, 2),
-                                                  "munizioni": e_munizioni(self.oro, self.app.config)},
+                                                  "verde": round(self.verde, 2), "oro": round(self.oro, 2),
+                                                  "munizioni": e_munizioni(self.verde, self.oro, self.app.config)},
                                       solo_pannello=True)
             self.picco = 0.0
 
@@ -376,10 +384,10 @@ class Occhio:
                 cv2.putText(img, f"{v:.2f}", (cx - X + px, max(12, cy - Y + py - 4)), cv2.FONT_HERSHEY_SIMPLEX,
                             0.5, col, 1)
         mx, my, mw, mh = self._mirino()
-        oo = self._oro(z, X, Y)
-        no = e_munizioni(oo, self.app.config)
+        vv, oo = self._colori(z, X, Y)
+        no = e_munizioni(vv, oo, self.app.config)
         col = (200, 80, 200) if no else (40, 200, 255)
         cv2.rectangle(img, (mx - X, my - Y), (mx - X + mw, my - Y + mh), col, 2)
-        cv2.putText(img, f"oro {oo:.2f}" + (" NO" if no else ""), (mx - X + 4, my - Y + mh - 6),
+        cv2.putText(img, f"verde {vv:.2f}" + (" NO" if no else ""), (mx - X + 4, my - Y + mh - 6),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 1)
         return img

@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 import schermo
 
-VERSIONE = "1.0.0"
+VERSIONE = "1.0.1"
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
