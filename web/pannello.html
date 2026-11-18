@@ -268,7 +268,7 @@ function numero(v, anima) {
 function disegnaTasti() {
   const box = $("tasti");
   box.innerHTML = "";
-  for (const azione of ["apri", "piu", "meno", "pausa"]) {
+  for (const azione of ["apri", "piu", "meno", "pausa", "configura"]) {
     const t = S.tasti[azione];
     const r = document.createElement("div");
     const attesa = S.cattura_tasto === azione;

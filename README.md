@@ -37,6 +37,7 @@ Si cambiano tutti nel pannello, sezione **Tasti**.
 | +1 cassa | `Ctrl+Alt+Su` |
 | −1 cassa | `Ctrl+Alt+Giù` |
 | Pausa / riprendi (es. mentre specti qualcuno) | `Ctrl+Alt+P` |
+| Impara la scritta (solo se non conta) | `Ctrl+Alt+C` |
 
 ## Stream Deck
 
@@ -56,8 +57,11 @@ Contano tutte le casse (oro, argento, quelle col cristallo...). Le cassette di m
 
 ## Non conta?
 
-Nel pannello apri *Impostazioni avanzate* → *Cosa vedo adesso* mentre miri una cassa: la scritta deve diventare verde.
-Se resta rossa, controlla il punto 1. Per tutto il resto: [Discord](https://discord.gg/NjnRuPt3hn).
+1. Controlla il punto 1 (Schermo intero in finestra).
+2. In partita **mira una cassa** finché compare la scritta per aprirla e premi **`Ctrl+Alt+C`**: ContaCasse impara la scritta del tuo gioco (serve se hai Fortnite in un'altra lingua o una scritta diversa).
+3. Nel pannello apri *Impostazioni avanzate* → *Cosa vedo adesso* mentre miri una cassa: la scritta deve diventare verde.
+
+Per tutto il resto: [Discord](https://discord.gg/NjnRuPt3hn).
 
 ## Dal codice
 

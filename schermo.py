@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -14,6 +15,8 @@ PAUSA = 1.0
 VERDE_MUNIZIONI = 0.25
 ORO_MINIMO = 0.15
 ALTEZZA_BASE = 1440
+FATTORI_HUD = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2)
+NERO_PER = 3.0
 
 
 def colori(img):
@@ -36,15 +39,91 @@ def prepara(img):
     return cv2.GaussianBlur(np.where(g >= 200, 255, 0).astype(np.uint8), (3, 3), 0)
 
 
+def trova_scritta(frame):
+    H, W = frame.shape[:2]
+    cx, cy = W // 2, H // 2
+    x0, x1 = max(0, cx - int(0.03 * W)), min(W, cx + int(0.28 * W))
+    y0, y1 = max(0, cy - int(0.30 * H)), min(H, cy + int(0.18 * H))
+    g = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+    bianco = (g >= 200).astype(np.uint8)
+    u = H / 1440.0
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, int(14 * u)), max(1, int(3 * u))))
+    n, _, st, _ = cv2.connectedComponentsWithStats(cv2.dilate(bianco, k), 8)
+    cand = []
+    for i in range(1, n):
+        x, y, w, h, _ = st[i]
+        if not (9 * u <= h <= 30 * u and 14 * u <= w <= 0.25 * W):
+            continue
+        if not (0.10 <= bianco[y:y + h, x:x + w].mean() <= 0.65):
+            continue
+        sotto = g[y:y + h, x:x + w][bianco[y:y + h, x:x + w] == 0]
+        m = int(0.6 * h)
+        X0, Y0 = max(0, x - m), max(0, y - m)
+        cornice = g[Y0:y + h + m, X0:x + w + m][bianco[Y0:y + h + m, X0:x + w + m] == 0]
+        if sotto.size == 0 or np.median(sotto) > 95 or np.median(cornice) > 100:
+            continue
+        cand.append([x, y, w, h])
+    cand.sort(key=lambda b: b[0])
+    gruppi = []
+    for b in cand:
+        for gr in gruppi:
+            gx, gy, gw, gh = gr
+            sovr = min(gy + gh, b[1] + b[3]) - max(gy, b[1])
+            if sovr > 0.5 * min(gh, b[3]) and b[0] - (gx + gw) < 4 * max(gh, b[3]):
+                nx, ny = min(gx, b[0]), min(gy, b[1])
+                gr[:] = [nx, ny, max(gx + gw, b[0] + b[2]) - nx, max(gy + gh, b[1] + b[3]) - ny]
+                break
+        else:
+            gruppi.append(list(b))
+    gruppi = [b for b in gruppi if b[2] >= 3 * b[3] and b[2] >= 50 * u and x0 + b[0] >= cx - 0.02 * W]
+    if not gruppi:
+        return None
+
+    def dist(b):
+        return ((x0 + b[0] + b[2] / 2 - cx) ** 2 + (y0 + b[1] + b[3] / 2 - cy) ** 2) ** 0.5
+    x, y, w, h = min(gruppi, key=lambda b: (-min(b[2], 12 * b[3]), dist(b)))
+    m = int(0.35 * h)
+    return (max(0, x0 + x - m), max(0, y0 + y - m), w + 2 * m, h + 2 * m)
+
+
+def somiglianza_scritte(a, b):
+    grande = cv2.copyMakeBorder(a, 40, 40, 80, 80, cv2.BORDER_CONSTANT, value=0)
+    if grande.shape[0] < b.shape[0] or grande.shape[1] < b.shape[1]:
+        return 0.0
+    return float(cv2.minMaxLoc(cv2.matchTemplate(grande, b, cv2.TM_CCOEFF_NORMED))[1])
+
+
+def uscite():
+    try:
+        import dxcam
+        testo = dxcam.output_info()
+    except Exception:
+        testo = ""
+    lista = []
+    for riga in testo.splitlines():
+        m = re.search(r"Device\[(\d+)\]\s*Output\[(\d+)\]:\s*Res:\((\d+),\s*(\d+)\).*Primary:\s*(\w+)", riga)
+        if m:
+            lista.append({"scheda": int(m.group(1)), "uscita": int(m.group(2)), "w": int(m.group(3)),
+                          "h": int(m.group(4)), "principale": m.group(5) == "True"})
+    lista.sort(key=lambda u: (not u["principale"], u["scheda"], u["uscita"]))
+    return lista
+
+
 class Cattura:
     def __init__(self, monitor):
         self.monitor = monitor
         self.cam = None
         self.sct = None
         self.ultimo = {}
+        lista = uscite()
+        self.uscita = lista[monitor] if 0 <= monitor < len(lista) else (lista[0] if lista else None)
         try:
             import dxcam
-            self.cam = dxcam.create(output_idx=monitor, output_color="BGR")
+            if self.uscita:
+                self.cam = dxcam.create(device_idx=self.uscita["scheda"], output_idx=self.uscita["uscita"],
+                                        output_color="BGR")
+            else:
+                self.cam = dxcam.create(output_color="BGR")
             if self.cam is None:
                 raise RuntimeError("dxcam non ha dato lo schermo")
         except Exception:
@@ -82,7 +161,7 @@ class Cattura:
         if self.sct is None:
             import mss
             self.sct = mss.MSS() if hasattr(mss, "MSS") else mss.mss()
-        m = self.sct.monitors[min(self.monitor + 1, len(self.sct.monitors) - 1)]
+        m = self._monitor_mss()
         if regione is None:
             box = m
         else:
@@ -90,14 +169,29 @@ class Cattura:
                    "width": regione[2], "height": regione[3]}
         return np.array(self.sct.grab(box))[:, :, :3]
 
+    def _monitor_mss(self):
+        monitori = self.sct.monitors[1:] or self.sct.monitors
+        u = self.uscita
+        if u:
+            for m in monitori:
+                if m["width"] == u["w"] and m["height"] == u["h"] and bool(m.get("is_primary")) == u["principale"]:
+                    return m
+            for m in monitori:
+                if m["width"] == u["w"] and m["height"] == u["h"]:
+                    return m
+        for m in monitori:
+            if m.get("is_primary"):
+                return m
+        return monitori[min(self.monitor, len(monitori) - 1)]
+
     @staticmethod
     def schermi():
-        try:
-            import dxcam
-            righe = [r for r in dxcam.output_info().splitlines() if "Output[" in r]
-            return [r.split("Output")[1].strip() for r in righe] or ["[0]"]
-        except Exception:
-            return ["[0]"]
+        lista = uscite()
+        if not lista:
+            return ["principale"]
+        piu_schede = len({u["scheda"] for u in lista}) > 1
+        return [f"{u['w']}x{u['h']}" + (" (principale)" if u["principale"] else "")
+                + (f" - scheda video {u['scheda'] + 1}" if piu_schede else "") for u in lista]
 
 
 class Occhio:
@@ -126,6 +220,9 @@ class Occhio:
         self.ultimo_evento = 0.0
         self.picco = 0.0
         self.avviso_nero = 0.0
+        self.nero_da = 0.0
+        self.varianti = []
+        self.giro = 0
         self.verde = 0.0
         self.oro = 0.0
         self.storia_colori = deque(maxlen=200)
@@ -146,15 +243,21 @@ class Occhio:
         self.modelli = modelli
         self._scegli_attivi()
 
+    def _variante(self, s):
+        return prepara(cv2.resize(self.base, None, fx=s, fy=s, interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC))
+
     def _modello_base(self, W, H):
         s = H / ALTEZZA_BASE
-        img = cv2.resize(self.base, None, fx=s, fy=s, interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC)
-        x0, y0 = int(W / 2 - 190 * s), int(H / 2 - 350 * s)
-        w, h = int(810 * s), int(680 * s)
+        self.varianti = [(f, self._variante(s * f)) for f in FATTORI_HUD]
+        scelta = float(self.app.config.get("scala_hud", 1.0))
+        img = dict(self.varianti).get(scelta, self.varianti[FATTORI_HUD.index(1.0)][1])
+        g = s * max(FATTORI_HUD)
+        x0, y0 = int(W / 2 - 190 * g), int(H / 2 - 350 * g)
+        w, h = int(810 * g), int(680 * g)
         x0, y0 = max(0, x0), max(0, y0)
         return {"file": "base", "nome": "E ESAMINA", "base": True, "w": img.shape[1], "h": img.shape[0],
                 "cerca": [x0, y0, min(w, W - x0), min(h, H - y0)], "schermo": [W, H],
-                "monitor": self.app.config.get("monitor", 0), "img": prepara(img)}
+                "monitor": self.app.config.get("monitor", 0), "img": img}
 
     def _scegli_attivi(self):
         if not self.schermo:
@@ -225,6 +328,19 @@ class Occhio:
             return self.base
         p = os.path.join(self.dir_modelli, "colore-" + os.path.basename(file))
         return cv2.imread(p, cv2.IMREAD_COLOR) if os.path.isfile(p) else None
+
+    def configura(self, ritardo=0.0):
+        if not self.fai_foto(ritardo).wait(ritardo + 5) or self.foto is None:
+            raise RuntimeError("lo schermo non si riesce a catturare")
+        r = trova_scritta(self.foto)
+        if r is None:
+            raise ValueError("non vedo la scritta per aprire la cassa: mira una cassa finche' compare e riprova")
+        x, y, w, h = r
+        nuova = prepara(self.foto[y:y + h, x:x + w])
+        for m in self.attivi:
+            if somiglianza_scritte(nuova, m["img"]) >= 0.9:
+                return m, True
+        return self.aggiungi_modello(x, y, w, h, "Scritta imparata"), False
 
     def tasto_premuto(self, t):
         if t - self.ultimo_visibile <= 0.25 and self.attivi:
@@ -308,22 +424,28 @@ class Occhio:
             return
         self.visto = zona
         self.verde, self.oro = self._colori(zona, X, Y)
+        self._controlla_nero(zona, adesso)
         grigio = prepara(zona)
-        if float(grigio.mean()) < 2 and adesso - self.avviso_nero > 30:
-            self.avviso_nero = adesso
-            self.app.scrivi("La zona dello schermo che guardo e' nera: Fortnite in schermo intero esclusivo? "
-                            "Metti 'Schermo intero in finestra'", "avviso")
+        soglia = float(cfg.get("soglia_schermo", 0.8))
         migliore = 0.0
+        self.giro += 1
         for m in self.attivi:
             cx, cy, cw, ch = m["cerca"]
             pezzo = grigio[cy - Y:cy - Y + ch, cx - X:cx - X + cw]
-            t = m["img"]
-            if pezzo.shape[0] < t.shape[0] or pezzo.shape[1] < t.shape[1]:
-                continue
-            migliore = max(migliore, float(cv2.matchTemplate(pezzo, t, cv2.TM_CCOEFF_NORMED).max()))
+            v = self._confronta(pezzo, m["img"])
+            if m.get("base") and self.varianti:
+                f, altra = self.varianti[self.giro % len(self.varianti)]
+                if altra.shape != m["img"].shape:
+                    v2 = self._confronta(pezzo, altra)
+                    if v2 >= soglia and v2 > v + 0.03:
+                        m["img"], m["w"], m["h"] = altra, altra.shape[1], altra.shape[0]
+                        self.app.aggiorna_config({"scala_hud": f})
+                        self.app.scrivi(f"La scritta sul tuo schermo e' al {int(f * 100)}%: mi adatto")
+                        v = v2
+            migliore = max(migliore, v)
         self.punteggio = migliore
         self.picco = max(self.picco, migliore)
-        ora_visibile = migliore >= float(cfg.get("soglia_schermo", 0.8))
+        ora_visibile = migliore >= soglia
         if ora_visibile:
             self.storia_colori.append((adesso, self.verde, self.oro))
             self.ultimo_visibile = adesso
@@ -360,6 +482,35 @@ class Occhio:
                                                   "munizioni": e_munizioni(self.verde, self.oro, self.app.config)},
                                       solo_pannello=True)
             self.picco = 0.0
+
+    @staticmethod
+    def _confronta(pezzo, t):
+        if pezzo.shape[0] < t.shape[0] or pezzo.shape[1] < t.shape[1]:
+            return 0.0
+        return float(cv2.matchTemplate(pezzo, t, cv2.TM_CCOEFF_NORMED).max())
+
+    def _controlla_nero(self, zona, adesso):
+        if int(zona.max()) >= 20:
+            self.nero_da = 0.0
+            return
+        if not self.nero_da:
+            self.nero_da = adesso
+            return
+        if adesso - self.nero_da < NERO_PER:
+            return
+        self.nero_da = adesso
+        if getattr(self.cattura, "cam", None) is not None:
+            try:
+                self.cattura.cam.release()
+            except Exception:
+                pass
+            self.cattura.cam = None
+            self.cattura.ultimo = {}
+            self.app.scrivi("La cattura veloce mi da' lo schermo nero: passo a quella compatibile", "avviso")
+        elif adesso - self.avviso_nero > 60:
+            self.avviso_nero = adesso
+            self.app.scrivi("Vedo lo schermo NERO: in Fortnite metti Modalita' finestra 'Schermo intero in "
+                            "finestra', oppure scegli l'altro schermo nelle Impostazioni avanzate", "errore")
 
     def immagine_visto(self):
         z = self.visto

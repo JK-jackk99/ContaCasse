@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 import schermo
 
-VERSIONE = "1.0.1"
+VERSIONE = "1.0.2"
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -55,12 +55,14 @@ AZIONI = {
     "piu": ("+1 cassa", [CTRL, ALT, 0x26]),
     "meno": ("-1 cassa", [CTRL, ALT, 0x28]),
     "pausa": ("Pausa / riprendi", [CTRL, ALT, 0x50]),
+    "configura": ("Impara la scritta (se non conta)", [CTRL, ALT, 0x43]),
 }
 
 CONFIG_BASE = {
     "automatico": True,
     "usa_schermo": True,
     "soglia_schermo": 0.8,
+    "scala_hud": 1.0,
     "monitor": 0,
     "tasto": 0x45,
     "nome_tasto": "E",
@@ -203,6 +205,8 @@ class Tasti:
             app.cambia("meno", motivo=f"Tasto {n}")
         elif azione == "pausa":
             app.pausa("cambia")
+        elif azione == "configura":
+            threading.Thread(target=app.configura, daemon=True).start()
 
 
 class Live:
@@ -344,6 +348,17 @@ class App:
         if voluta != in_pausa:
             self.aggiorna_config({"automatico": not voluta})
         return voluta
+
+    def configura(self, ritardo=0.0):
+        try:
+            m, gia = self.occhio.configura(ritardo)
+            self.scrivi("Questa scritta la conoscevo gia'" if gia
+                        else f"Scritta imparata ({m['w']}x{m['h']} px): da ora conto anche con questa", "conta")
+            self.pubblica_stato()
+            return {"ok": True, "gia": gia}
+        except Exception as e:
+            self.scrivi(f"Non ho imparato la scritta: {e}", "errore")
+            return {"ok": False, "errore": str(e)}
 
     def pubblica_stato(self):
         self.bacheca.pubblica("stato", self.stato(), solo_pannello=True)
