@@ -419,10 +419,20 @@ $("salvaScritta").onclick = async () => {
   $("ritaglio").hidden = true; $("nomeScritta").value = "";
 };
 $("chiudiFoto").onclick = () => { $("ritaglio").hidden = true; };
-let vediTimer = null;
+let vediTimer = null, vediInCorso = false;
+function fermaVedi() {
+  clearInterval(vediTimer); vediTimer = null; $("visto").hidden = true; $("vedi").textContent = "Cosa vedo adesso";
+}
 $("vedi").onclick = () => {
-  if (vediTimer) { clearInterval(vediTimer); vediTimer = null; $("visto").hidden = true; $("vedi").textContent = "Cosa vedo adesso"; return; }
-  const agg = () => { const i = new Image(); i.onload = () => { $("visto").src = i.src; $("visto").hidden = false; }; i.src = "/api/schermo/visto.png?t=" + Date.now(); };
+  if (vediTimer) { fermaVedi(); return; }
+  const agg = () => {
+    if (vediInCorso) return;
+    vediInCorso = true;
+    const i = new Image();
+    i.onload = () => { vediInCorso = false; $("visto").src = i.src; $("visto").hidden = false; };
+    i.onerror = () => { vediInCorso = false; };
+    i.src = "/api/schermo/visto.png?t=" + Date.now();
+  };
   agg(); vediTimer = setInterval(agg, 700); $("vedi").textContent = "Smetti di mostrare";
 };
 
@@ -458,8 +468,10 @@ async function carica() {
   const ul = $("registro"); ul.innerHTML = "";
   S.registro.forEach(v => ul.appendChild(voce(v)));
 }
-carica().then(() => {
-  const es = new EventSource("/eventi?pannello=1");
+let es = null;
+function collega() {
+  if (es) es.close();
+  es = new EventSource("/eventi?pannello=1");
   es.addEventListener("contatore", e => { const d = JSON.parse(e.data); if (S) S.contatore = d.valore; numero(d.valore, d.delta !== 0); });
   es.addEventListener("stato", e => { S = JSON.parse(e.data); disegna(); });
   es.addEventListener("registro", e => { const ul = $("registro"); ul.prepend(voce(JSON.parse(e.data))); while (ul.children.length > 60) ul.lastChild.remove(); });
@@ -473,7 +485,18 @@ carica().then(() => {
   });
   es.onerror = () => { $("pallino").classList.remove("ok"); $("stato").textContent = "ContaCasse è spento? Riaprilo"; };
   es.onopen = () => { if (S) carica(); };
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (es) { es.close(); es = null; }
+    fermaVedi();
+    $("anteprima").src = "about:blank";
+  } else {
+    aggiornaOverlay();
+    carica().then(collega);
+  }
 });
+carica().then(collega);
 </script>
 </body>
 </html>

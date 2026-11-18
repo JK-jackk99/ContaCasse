@@ -34,6 +34,20 @@ def e_munizioni(verde, oro, cfg=None):
     return verde >= float(cfg.get("verde_munizioni", VERDE_MUNIZIONI)) and oro < float(cfg.get("oro_minimo", ORO_MINIMO))
 
 
+def leggi_img(percorso):
+    try:
+        return cv2.imdecode(np.fromfile(percorso, np.uint8), cv2.IMREAD_COLOR)
+    except Exception:
+        return None
+
+
+def scrivi_img(percorso, img):
+    ok, buf = cv2.imencode(os.path.splitext(percorso)[1] or ".png", img)
+    if ok:
+        buf.tofile(percorso)
+    return ok
+
+
 def prepara(img):
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return cv2.GaussianBlur(np.where(g >= 200, 255, 0).astype(np.uint8), (3, 3), 0)
@@ -200,7 +214,7 @@ class Occhio:
         self.dir_modelli = os.path.join(cartella, "modelli")
         os.makedirs(self.dir_modelli, exist_ok=True)
         self.file_modelli = os.path.join(cartella, "modelli.json")
-        self.base = cv2.imread(scritta_base, cv2.IMREAD_COLOR) if scritta_base else None
+        self.base = leggi_img(scritta_base) if scritta_base else None
         self.schermo = None
         self.modelli = []
         self.attivi = []
@@ -235,7 +249,7 @@ class Occhio:
             lista = []
         modelli = []
         for m in lista:
-            img = cv2.imread(os.path.join(self.dir_modelli, "colore-" + m["file"]), cv2.IMREAD_COLOR)
+            img = leggi_img(os.path.join(self.dir_modelli, "colore-" + m["file"]))
             if img is not None:
                 m = dict(m)
                 m["img"] = prepara(img)
@@ -297,8 +311,8 @@ class Occhio:
         cx, cy = max(0, x - mx), max(0, y - my)
         cw, ch = min(W - cx, w + 2 * mx), min(H - cy, h + 2 * my)
         file = time.strftime("%Y%m%d-%H%M%S") + ".png"
-        cv2.imwrite(os.path.join(self.dir_modelli, file), prepara(ritaglio))
-        cv2.imwrite(os.path.join(self.dir_modelli, "colore-" + file), ritaglio)
+        scrivi_img(os.path.join(self.dir_modelli, file), prepara(ritaglio))
+        scrivi_img(os.path.join(self.dir_modelli, "colore-" + file), ritaglio)
         m = {"file": file, "nome": (nome or "Scritta").strip()[:40], "x": x, "y": y, "w": w, "h": h,
              "cerca": [cx, cy, cw, ch], "monitor": self.app.config.get("monitor", 0),
              "schermo": [W, H], "img": prepara(ritaglio)}
@@ -327,7 +341,7 @@ class Occhio:
         if file == "base":
             return self.base
         p = os.path.join(self.dir_modelli, "colore-" + os.path.basename(file))
-        return cv2.imread(p, cv2.IMREAD_COLOR) if os.path.isfile(p) else None
+        return leggi_img(p) if os.path.isfile(p) else None
 
     def configura(self, ritardo=0.0):
         if not self.fai_foto(ritardo).wait(ritardo + 5) or self.foto is None:
@@ -395,6 +409,8 @@ class Occhio:
         self.errore = None
         self.attivo = True
         self.app.scrivi(f"Guardo lo schermo {monitor + 1} ({W}x{H})")
+        if not self.attivi:
+            self.app.scrivi("Non ho nessuna scritta da cercare: l'immagine di base non si e' caricata", "errore")
         self.app.pubblica_stato()
         while True:
             t0 = time.time()

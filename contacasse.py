@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 import schermo
 
-VERSIONE = "1.0.2"
+VERSIONE = "1.0.3"
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -405,7 +405,10 @@ def crea_gestore(app):
             self.send_header("Cache-Control", "no-store")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(corpo)
+            try:
+                self.wfile.write(corpo)
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass
 
         def _file(self, nome):
             with open(os.path.join(WEB, nome), "rb") as f:
@@ -532,6 +535,15 @@ def crea_gestore(app):
     return Gestore
 
 
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def porta_occupata(porta):
     with socket.socket() as s:
         s.settimeout(0.3)
@@ -551,8 +563,7 @@ def main():
         time.sleep(2)
         return
     app = App()
-    server = ThreadingHTTPServer(("127.0.0.1", PORTA), crea_gestore(app))
-    server.daemon_threads = True
+    server = Server(("127.0.0.1", PORTA), crea_gestore(app))
     app.occhio.avvia()
     app.tasti.avvia()
     app.live.avvia()
