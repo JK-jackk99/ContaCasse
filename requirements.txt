@@ -2,3 +2,12 @@ numpy
 opencv-python-headless
 mss
 dxcam
+winrt-runtime
+winrt-Windows.Foundation
+winrt-Windows.Foundation.Collections
+winrt-Windows.Globalization
+winrt-Windows.Graphics.Imaging
+winrt-Windows.Media.Ocr
+winrt-Windows.Security.Cryptography
+winrt-Windows.Storage.Streams
+hidapi

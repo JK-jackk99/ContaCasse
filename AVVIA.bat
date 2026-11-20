@@ -7,9 +7,9 @@ where python >nul 2>nul || (
   pause
   exit /b
 )
-python -c "import numpy, cv2, mss, dxcam" 2>nul || (
+python -c "import numpy, cv2, mss, dxcam, winrt.windows.media.ocr, winrt.windows.graphics.imaging, winrt.windows.security.cryptography, hid" 2>nul || (
   echo Installo le librerie che servono, solo la prima volta...
-  python -m pip install --user numpy opencv-python-headless mss dxcam
+  python -m pip install --user -r requirements.txt
 )
 python contacasse.py
 pause

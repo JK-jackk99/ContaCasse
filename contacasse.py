@@ -12,9 +12,10 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import pad
 import schermo
 
-VERSIONE = "1.0.3"
+VERSIONE = "1.0.4"
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -27,9 +28,7 @@ if getattr(sys, "frozen", False):
 else:
     RISORSE = QUI = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(RISORSE, "web")
-SCRITTA_BASE = os.path.join(RISORSE, "base", "esamina.png")
 DATI = os.path.join(QUI, "dati")
-SCHERMO = os.path.join(DATI, "schermo")
 FILE_CONFIG = os.path.join(DATI, "config.json")
 FILE_STATO = os.path.join(DATI, "stato.json")
 FILE_TESTO = os.path.join(DATI, "contatore.txt")
@@ -55,17 +54,16 @@ AZIONI = {
     "piu": ("+1 cassa", [CTRL, ALT, 0x26]),
     "meno": ("-1 cassa", [CTRL, ALT, 0x28]),
     "pausa": ("Pausa / riprendi", [CTRL, ALT, 0x50]),
-    "configura": ("Impara la scritta (se non conta)", [CTRL, ALT, 0x43]),
 }
 
 CONFIG_BASE = {
     "automatico": True,
     "usa_schermo": True,
-    "soglia_schermo": 0.8,
-    "scala_hud": 1.0,
+    "parola": "ESAMINA",
     "monitor": 0,
     "tasto": 0x45,
     "nome_tasto": "E",
+    "tasto_pad": "OVEST",
     "tasti": {a: v[1] for a, v in AZIONI.items()},
     "scorciatoie": True,
 }
@@ -122,13 +120,15 @@ class Tasti:
         self.app = app
         self.cattura_per = None
         self.cattura_fino = 0.0
+        self.pad_prima = set()
 
     def avvia(self):
         threading.Thread(target=self._ciclo, daemon=True, name="tasti").start()
 
     def cattura(self, azione, secondi=8.0):
-        if azione != "apri" and azione not in AZIONI:
+        if azione not in ("apri", "apri_pad") and azione not in AZIONI:
             raise ValueError("azione sconosciuta")
+        self.pad_prima = self.app.pad.premuti()
         self.cattura_per = azione
         self.cattura_fino = time.time() + secondi
 
@@ -144,6 +144,17 @@ class Tasti:
         azione = self.cattura_per
         if time.time() > self.cattura_fino:
             self._fine_cattura("Nessun tasto premuto: non ho cambiato niente")
+            return
+        if azione == "apri_pad":
+            ora = self.app.pad.premuti()
+            nuovi = sorted(ora - self.pad_prima)
+            self.pad_prima = ora
+            if nuovi:
+                self.app.aggiorna_config({"tasto_pad": nuovi[0]})
+                self._fine_cattura(f"Pulsante del controller per aprire le casse: {pad.nome(nuovi[0])}")
+                return
+            if giu(0x1B):
+                self._fine_cattura("Cambio del pulsante annullato")
             return
         for vk in range(2, 255):
             if SINONIMI.get(vk, vk) in MODIFICATORI:
@@ -167,6 +178,7 @@ class Tasti:
 
     def _ciclo(self):
         prima_apri = False
+        prima_pad = False
         prima = {}
         stato_cattura = None
         while True:
@@ -188,6 +200,12 @@ class Tasti:
                 self.app.occhio.tasto_premuto(adesso)
             prima_apri = premuto
 
+            pulsante = cfg.get("tasto_pad")
+            sul_pad = bool(pulsante) and pulsante in self.app.pad.premuti()
+            if sul_pad and not prima_pad:
+                self.app.occhio.tasto_premuto(adesso)
+            prima_pad = sul_pad
+
             if cfg.get("scorciatoie", True):
                 for azione, combo in cfg.get("tasti", {}).items():
                     attiva = bool(combo) and all(giu(v) for v in combo)
@@ -205,8 +223,6 @@ class Tasti:
             app.cambia("meno", motivo=f"Tasto {n}")
         elif azione == "pausa":
             app.pausa("cambia")
-        elif azione == "configura":
-            threading.Thread(target=app.configura, daemon=True).start()
 
 
 class Live:
@@ -283,7 +299,7 @@ class Bacheca:
 
 class App:
     def __init__(self):
-        os.makedirs(SCHERMO, exist_ok=True)
+        os.makedirs(DATI, exist_ok=True)
         self.lock = threading.RLock()
         self.config = json.loads(json.dumps(CONFIG_BASE))
         letto = leggi_json(FILE_CONFIG, {})
@@ -296,7 +312,8 @@ class App:
         self.bacheca = Bacheca()
         self.registro = deque(maxlen=60)
         self.salva_contatore()
-        self.occhio = schermo.Occhio(self, SCHERMO, SCRITTA_BASE)
+        self.occhio = schermo.Occhio(self)
+        self.pad = pad.Pad(lambda testo: self.scrivi(testo))
         self.tasti = Tasti(self)
         self.live = Live(self)
 
@@ -349,17 +366,6 @@ class App:
             self.aggiorna_config({"automatico": not voluta})
         return voluta
 
-    def configura(self, ritardo=0.0):
-        try:
-            m, gia = self.occhio.configura(ritardo)
-            self.scrivi("Questa scritta la conoscevo gia'" if gia
-                        else f"Scritta imparata ({m['w']}x{m['h']} px): da ora conto anche con questa", "conta")
-            self.pubblica_stato()
-            return {"ok": True, "gia": gia}
-        except Exception as e:
-            self.scrivi(f"Non ho imparato la scritta: {e}", "errore")
-            return {"ok": False, "errore": str(e)}
-
     def pubblica_stato(self):
         self.bacheca.pubblica("stato", self.stato(), solo_pannello=True)
 
@@ -371,12 +377,13 @@ class App:
             "contatore": self.contatore,
             "config": cfg,
             "tasti": {
-                "apri": {"nome": cfg.get("nome_tasto", "E"), "etichetta": "Aprire le casse (in gioco)"},
+                "apri": {"nome": cfg.get("nome_tasto", "E"), "etichetta": "Aprire le casse (tastiera)"},
+                "apri_pad": {"nome": pad.nome(cfg.get("tasto_pad")), "etichetta": "Aprire le casse (controller)"},
                 **{a: {"nome": nome_combinazione(cfg["tasti"].get(a, [])), "etichetta": AZIONI[a][0]}
                    for a in AZIONI},
             },
             "cattura_tasto": getattr(getattr(self, "tasti", None), "cattura_per", None),
-            "schermo": {"modelli": occhio.pubblici() if occhio else [],
+            "schermo": {"parola": cfg.get("parola", "ESAMINA"),
                         "attivo": getattr(occhio, "attivo", False),
                         "errore": getattr(occhio, "errore", None),
                         "schermi": schermo.Cattura.schermi()},
@@ -430,16 +437,8 @@ def crea_gestore(app):
                 return self._invia(200, app.stato())
             if u.path == "/api/contatore":
                 return self._invia(200, {"valore": app.contatore})
-            if u.path == "/api/schermo/foto.jpg":
-                f = app.occhio.foto
-                if f is None:
-                    return self._invia(404, {"errore": "nessuna foto"})
-                return self._invia(200, schermo.cv2.imencode(".jpg", f, [schermo.cv2.IMWRITE_JPEG_QUALITY, 88])[1]
-                                   .tobytes(), "image/jpeg")
             if u.path == "/api/schermo/visto.png":
                 return self._png(app.occhio.immagine_visto())
-            if u.path == "/api/schermo/modello.png":
-                return self._png(app.occhio.modello_png(q.get("file", [""])[0]))
             if u.path == "/eventi":
                 return self._eventi("pannello" in q)
             self._invia(404, {"errore": "non trovato"})
@@ -502,7 +501,7 @@ def crea_gestore(app):
                     return self._invia(200, {"ok": True})
                 if u.path == "/api/tasti/predefiniti":
                     app.aggiorna_config({"tasti": {a: v[1] for a, v in AZIONI.items()},
-                                         "tasto": 0x45, "nome_tasto": "E"})
+                                         "tasto": 0x45, "nome_tasto": "E", "tasto_pad": "OVEST"})
                     app.scrivi("Tasti rimessi come all'inizio")
                     return self._invia(200, {"ok": True})
                 if u.path == "/api/streamdeck":
@@ -512,22 +511,6 @@ def crea_gestore(app):
                 if u.path == "/api/pausa":
                     p = app.pausa(corpo.get("azione", "cambia"))
                     return self._invia(200, {"pausa": p, "valore": app.contatore})
-                if u.path == "/api/schermo/foto":
-                    ritardo = max(0.0, min(15.0, float(corpo.get("ritardo", 5))))
-                    if not app.occhio.fai_foto(ritardo).wait(ritardo + 5) or app.occhio.foto is None:
-                        return self._invia(500, {"errore": "lo schermo non si cattura"})
-                    h, w = app.occhio.foto.shape[:2]
-                    app.scrivi(f"Schermo catturato ({w}x{h}): ritaglia la scritta")
-                    return self._invia(200, {"w": w, "h": h})
-                if u.path == "/api/schermo/modello":
-                    m = app.occhio.aggiungi_modello(corpo["x"], corpo["y"], corpo["w"], corpo["h"], corpo.get("nome"))
-                    app.scrivi(f"Scritta salvata: {m['nome']} ({m['w']}x{m['h']} px)")
-                    app.pubblica_stato()
-                    return self._invia(200, {"ok": True})
-                if u.path == "/api/schermo/elimina":
-                    app.occhio.elimina_modello(str(corpo.get("file", "")))
-                    app.pubblica_stato()
-                    return self._invia(200, {"ok": True})
             except Exception as e:
                 return self._invia(400, {"errore": str(e)})
             self._invia(404, {"errore": "non trovato"})
@@ -564,6 +547,7 @@ def main():
         return
     app = App()
     server = Server(("127.0.0.1", PORTA), crea_gestore(app))
+    app.pad.avvia()
     app.occhio.avvia()
     app.tasti.avvia()
     app.live.avvia()

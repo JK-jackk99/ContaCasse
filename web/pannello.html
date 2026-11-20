@@ -60,20 +60,10 @@
   .misura { position: relative; height: 26px; background: var(--fondo); border: 1px solid var(--linea); border-radius: 7px; overflow: hidden; }
   .misura .barra { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #3a3850, #6c6890); transition: width .08s linear; }
   .misura .barra.sopra { background: linear-gradient(90deg, #1f8f55, var(--verde)); }
-  .misura .soglia { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--oro); }
   .misura .scritta { position: absolute; right: 8px; top: 3px; font-size: 12px; color: var(--tenue); font-variant-numeric: tabular-nums; }
   .piccolo { font-size: 12px; color: var(--tenue); }
   .aiuto { color: var(--tenue); font-size: 13px; margin: 6px 0 0; }
   input[type=range] { flex: 1; min-width: 160px; accent-color: var(--oro); }
-  .campioni { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-  .campioni li { display: flex; align-items: center; gap: 10px; background: var(--carta2); border-radius: 8px; padding: 7px 10px; }
-  .campioni li span { flex: 1; }
-  .campioni img { height: 32px; border-radius: 4px; background: #000; }
-  .contoalrovescio { font-size: 15px; font-weight: 700; color: var(--oro); }
-  .calibra { margin-top: 12px; background: var(--carta2); border-radius: 10px; padding: 12px; border: 1px solid var(--linea); }
-  .foto { position: relative; overflow: auto; max-height: 520px; border-radius: 8px; background: #000; cursor: crosshair; user-select: none; }
-  .foto img { display: block; width: 100%; }
-  .sel { position: absolute; border: 2px solid var(--oro); background: rgba(255,201,60,.15); pointer-events: none; }
   .avanzate { background: var(--carta); border: 1px solid var(--linea); border-radius: 12px; padding: 12px 18px; }
   .avanzate > summary { cursor: pointer; color: var(--tenue); font-size: 13px; text-transform: uppercase; letter-spacing: .09em; font-weight: 600; list-style: none; }
   .avanzate > summary::before { content: "▸ "; }
@@ -161,7 +151,7 @@
       <h2>Tasti</h2>
       <div class="tasti" id="tasti"></div>
       <div class="riga" style="margin-bottom:0">
-        <span class="piccolo">Premi «Cambia» e poi il tasto (anche con Ctrl/Alt/Maiusc). Esc annulla.</span>
+        <span class="piccolo">Premi «Cambia» e poi il tasto (anche con Ctrl/Alt/Maiusc); per il controller premi il pulsante sul controller. Esc annulla.</span>
         <button id="tastiPredefiniti" style="margin-left:auto">Rimetti come all'inizio</button>
       </div>
     </section>
@@ -172,35 +162,14 @@
         <label class="interruttore"><input type="checkbox" id="usa_schermo"> Guarda lo schermo</label>
         <select id="monitor" aria-label="Schermo"></select>
       </div>
-      <div class="misura" title="Quanto la zona dello schermo somiglia alla scritta della cassa">
+      <div class="misura" title="Se in questo momento legge la scritta della cassa">
         <div class="barra" id="barraS"></div>
-        <div class="soglia" id="segnoS"></div>
         <div class="scritta" id="scrittaS">—</div>
       </div>
-      <div class="riga">
-        <label for="sogliaS">Somiglianza necessaria</label>
-        <input type="range" id="sogliaS" min="0.40" max="0.95" step="0.01">
-        <b id="sogliaSN">0.80</b>
-      </div>
-      <p class="aiuto">Conta quando la scritta della cassa è a schermo, premi il tasto per aprire e la scritta sparisce entro 2,5 s. Se sotto il mirino c'è il verde spento della cassetta di munizioni non conta.</p>
-      <p class="aiuto" style="margin-top:12px">Scritte che riconosce (per altre modalità, es. «CERCA», ritagliane una a mano):</p>
-      <ul class="campioni" id="modelli" style="margin-top:6px"></ul>
-      <div class="riga">
-        <button id="cattura">Ritaglia a mano (cattura tra 5 s)</button>
-        <span class="contoalrovescio" id="contoS"></span>
-      </div>
-      <div class="calibra" id="ritaglio" hidden>
-        <div class="riga" style="margin-top:0"><b>Trascina un riquadro stretto attorno alla scritta (la E e la parola), non alla cassa.</b> <span class="piccolo">La rotellina ingrandisce.</span></div>
-        <div class="foto" id="fotoBox"><img id="foto" alt="Schermo catturato" draggable="false"><div class="sel" id="sel" hidden></div></div>
-        <div class="riga">
-          <input type="text" id="nomeScritta" placeholder="Nome (facoltativo)" maxlength="40">
-          <button class="primario" id="salvaScritta" disabled>Salva scritta</button>
-          <button id="chiudiFoto">Chiudi</button>
-        </div>
-      </div>
+      <p class="aiuto">Legge la scritta ESAMINA a schermo, come la leggi tu: non serve nessuna foto né configurazione. Conta quando c'è la scritta, premi il tasto per aprire e la scritta sparisce entro 2,5 s. Se sotto il mirino c'è il verde spento della cassetta di munizioni non conta.</p>
       <div class="riga">
         <button id="vedi">Cosa vedo adesso</button>
-        <span class="piccolo">scritta: verde = trovata · mirino: giallo = conta, viola = munizioni</span>
+        <span class="piccolo">parole lette: verde = ESAMINA · mirino: giallo = conta, viola = munizioni</span>
       </div>
       <img id="visto" alt="Zona guardata" hidden style="max-width:100%;border-radius:8px;border:1px solid var(--linea)">
     </details>
@@ -268,14 +237,14 @@ function numero(v, anima) {
 function disegnaTasti() {
   const box = $("tasti");
   box.innerHTML = "";
-  for (const azione of ["apri", "piu", "meno", "pausa", "configura"]) {
+  for (const azione of ["apri", "apri_pad", "piu", "meno", "pausa"]) {
     const t = S.tasti[azione];
     const r = document.createElement("div");
     const attesa = S.cattura_tasto === azione;
     r.className = "t" + (attesa ? " in-attesa" : "");
     r.innerHTML = `<span></span><kbd></kbd><button>Cambia</button>`;
     r.children[0].textContent = t.etichetta;
-    r.children[1].textContent = attesa ? "premi il tasto…" : t.nome;
+    r.children[1].textContent = attesa ? (azione === "apri_pad" ? "premi sul controller…" : "premi il tasto…") : t.nome;
     r.children[2].onclick = () => api("/api/tasti/cattura", { azione });
     box.appendChild(r);
   }
@@ -318,32 +287,13 @@ function disegna() {
   $("discord").href = $("discordTop").href = S.discord;
   $("automatico").checked = c.automatico;
   $("usa_schermo").checked = c.usa_schermo;
-  if (document.activeElement !== $("sogliaS")) $("sogliaS").value = c.soglia_schermo;
-  $("sogliaSN").textContent = (+c.soglia_schermo).toFixed(2);
-  $("segnoS").style.left = (c.soglia_schermo * 100) + "%";
-  const sch = S.schermo || { modelli: [], schermi: [] };
+  const sch = S.schermo || { schermi: [] };
   const ms = $("monitor");
   if (ms.options.length !== sch.schermi.length) {
     ms.innerHTML = "";
     sch.schermi.forEach((d, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `Schermo ${i + 1} ${d.replace(/^\[\d+\]:?\s*/, "").replace(/ Rot:.*$/, "")}`; ms.appendChild(o); });
   }
   ms.value = c.monitor;
-  const ul2 = $("modelli");
-  ul2.innerHTML = "";
-  if (!sch.modelli.length) ul2.innerHTML = '<li class="piccolo">Nessuna</li>';
-  for (const m of sch.modelli) {
-    const li = document.createElement("li");
-    li.innerHTML = `<img alt=""><span></span><span class="piccolo">${m.base ? "di base" : m.w + "×" + m.h + " px"}</span>`;
-    li.children[0].src = `/api/schermo/modello.png?file=${encodeURIComponent(m.file)}`;
-    li.children[1].textContent = m.nome;
-    if (!m.base) {
-      const b = document.createElement("button");
-      b.textContent = "Elimina"; b.className = "pericolo";
-      b.onclick = () => { if (confirm(`Eliminare "${m.nome}"?`)) api("/api/schermo/elimina", { file: m.file }); };
-      li.appendChild(b);
-    }
-    ul2.appendChild(li);
-  }
   disegnaTasti();
   disegnaCanali(S.canali || []);
   $("fileTesto").textContent = S.file_testo;
@@ -367,58 +317,6 @@ $("automatico").onchange = e => config({ automatico: e.target.checked });
 $("usa_schermo").onchange = e => config({ usa_schermo: e.target.checked });
 $("monitor").onchange = e => config({ monitor: +e.target.value });
 $("tastiPredefiniti").onclick = () => { if (confirm("Rimettere tutti i tasti come all'inizio?")) api("/api/tasti/predefiniti"); };
-let ritS = null;
-$("sogliaS").oninput = e => {
-  $("sogliaSN").textContent = (+e.target.value).toFixed(2);
-  $("segnoS").style.left = (e.target.value * 100) + "%";
-  clearTimeout(ritS); ritS = setTimeout(() => config({ soglia_schermo: +e.target.value }), 250);
-};
-
-let selez = null, inizioSel = null, zoom = 1;
-$("cattura").onclick = async () => {
-  $("cattura").disabled = true;
-  let s = 5;
-  $("contoS").textContent = `Torna nel gioco e mira la cassa… ${s}`;
-  const tm = setInterval(() => { s--; $("contoS").textContent = s > 0 ? `Torna nel gioco e mira la cassa… ${s}` : "Catturo…"; }, 1000);
-  try {
-    await api("/api/schermo/foto", { ritardo: 5 });
-    $("foto").src = "/api/schermo/foto.jpg?t=" + Date.now();
-    zoom = 1; $("foto").style.width = "100%";
-    $("ritaglio").hidden = false; $("sel").hidden = true; selez = null; $("salvaScritta").disabled = true;
-  } catch (e) {}
-  $("contoS").textContent = "";
-  clearInterval(tm);
-  $("cattura").disabled = false;
-};
-function puntoFoto(e) {
-  const img = $("foto"), r = img.getBoundingClientRect();
-  return { x: (e.clientX - r.left) / r.width * img.naturalWidth, y: (e.clientY - r.top) / r.height * img.naturalHeight };
-}
-function disegnaSel() {
-  if (!selez) return;
-  const img = $("foto"), k = img.getBoundingClientRect().width / img.naturalWidth;
-  Object.assign($("sel").style, { left: selez.x * k + "px", top: selez.y * k + "px", width: selez.w * k + "px", height: selez.h * k + "px" });
-  $("sel").hidden = false;
-}
-$("fotoBox").addEventListener("pointerdown", e => { e.preventDefault(); inizioSel = puntoFoto(e); $("fotoBox").setPointerCapture(e.pointerId); });
-$("fotoBox").addEventListener("pointermove", e => {
-  if (!inizioSel) return;
-  const p = puntoFoto(e);
-  selez = { x: Math.round(Math.min(p.x, inizioSel.x)), y: Math.round(Math.min(p.y, inizioSel.y)), w: Math.round(Math.abs(p.x - inizioSel.x)), h: Math.round(Math.abs(p.y - inizioSel.y)) };
-  disegnaSel();
-});
-$("fotoBox").addEventListener("pointerup", () => { inizioSel = null; $("salvaScritta").disabled = !(selez && selez.w >= 12 && selez.h >= 8); });
-$("fotoBox").addEventListener("wheel", e => {
-  e.preventDefault();
-  zoom = Math.max(1, Math.min(6, zoom * (e.deltaY < 0 ? 1.25 : 0.8)));
-  $("foto").style.width = zoom * 100 + "%";
-  disegnaSel();
-}, { passive: false });
-$("salvaScritta").onclick = async () => {
-  await api("/api/schermo/modello", { ...selez, nome: $("nomeScritta").value });
-  $("ritaglio").hidden = true; $("nomeScritta").value = "";
-};
-$("chiudiFoto").onclick = () => { $("ritaglio").hidden = true; };
 let vediTimer = null, vediInCorso = false;
 function fermaVedi() {
   clearInterval(vediTimer); vediTimer = null; $("visto").hidden = true; $("vedi").textContent = "Cosa vedo adesso";
@@ -479,9 +377,10 @@ function collega() {
   es.addEventListener("live", e => { if (S) { S.canali = JSON.parse(e.data).canali; disegnaCanali(S.canali); } });
   es.addEventListener("schermo", e => {
     const d = JSON.parse(e.data);
-    $("barraS").style.width = Math.max(0, Math.min(1, d.s)) * 100 + "%";
+    $("barraS").style.width = d.vis ? "100%" : "0%";
     $("barraS").classList.toggle("sopra", d.vis);
-    $("scrittaS").textContent = `${Math.max(0, d.s).toFixed(2)} · ${d.vis ? "scritta VISTA" : "nessuna scritta"} · verde sotto il mirino ${(d.verde ?? 0).toFixed(2)}${d.munizioni ? " (munizioni: non conta)" : ""}`;
+    const lette = (d.lette || []).join(" ");
+    $("scrittaS").textContent = `${d.vis ? d.parola + " letta" : d.parola + " non a schermo"} · verde sotto il mirino ${(d.verde ?? 0).toFixed(2)}${d.munizioni ? " (munizioni: non conta)" : ""}${lette ? " · leggo: " + lette.slice(0, 60) : ""}`;
   });
   es.onerror = () => { $("pallino").classList.remove("ok"); $("stato").textContent = "ContaCasse è spento? Riaprilo"; };
   es.onopen = () => { if (S) carica(); };

@@ -29,7 +29,7 @@ def main():
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--console",
         "--name", "ContaCasse", "--icon", ico,
         "--add-data", f"{os.path.join(QUI, 'web')}{os.pathsep}web",
-        "--add-data", f"{os.path.join(QUI, 'base')}{os.pathsep}base",
+        "--collect-submodules", "winrt", "--collect-binaries", "winrt",
         "--distpath", RILASCIO, "--workpath", os.path.join(LAVORO, "work"), "--specpath", LAVORO,
         "--exclude-module", "tkinter", "--exclude-module", "matplotlib", "--exclude-module", "pyaudiowpatch",
         "--exclude-module", "impronte", "--exclude-module", "PIL", "--exclude-module", "IPython",

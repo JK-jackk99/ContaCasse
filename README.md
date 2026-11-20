@@ -21,7 +21,7 @@ Vai su **[Releases](../../releases/latest)** e scarica:
 2. **Avvia `ContaCasse.exe`.**
    Se Windows dice *"Windows ha protetto il PC"*: clicca *Ulteriori informazioni* → *Esegui comunque* (succede con tutti i programmi nuovi non firmati).
    Si apre una finestra nera (ContaCasse acceso: chiudila per spegnerlo) e il pannello nel browser. Il numero resta salvato.
-   Non c'è niente da configurare: riconosce già la scritta "E ESAMINA" delle casse, a qualunque risoluzione.
+   Non c'è niente da configurare: legge la parola **ESAMINA** sullo schermo, come la leggi tu, a qualunque risoluzione e grandezza dell'HUD. Nessuna foto da fare.
 3. **Mettilo in live** con l'indirizzo `http://127.0.0.1:8787/overlay.html`
    - OBS: Fonti → + → **Browser** → incolla l'indirizzo (larghezza 500, altezza 160).
    - TikTok Live Studio: Aggiungi sorgente → **Link** → incolla lo stesso indirizzo.
@@ -30,14 +30,15 @@ Vai su **[Releases](../../releases/latest)** e scarica:
 ## Tasti
 
 Si cambiano tutti nel pannello, sezione **Tasti**.
+Funziona anche col **controller**: PS5 (DualSense), PS4 (DualShock 4) e Xbox, via cavo o Bluetooth.
 
 | Cosa | Tasto |
 |---|---|
 | Aprire le casse | `E` (quello che usi in Fortnite) |
+| Aprire le casse col controller | `Quadrato` (PS4/PS5) / `X` (Xbox) |
 | +1 cassa | `Ctrl+Alt+Su` |
 | −1 cassa | `Ctrl+Alt+Giù` |
 | Pausa / riprendi (es. mentre specti qualcuno) | `Ctrl+Alt+P` |
-| Impara la scritta (solo se non conta) | `Ctrl+Alt+C` |
 
 ## Stream Deck
 
@@ -46,7 +47,7 @@ Nella categoria **ContaCasse** trovi 4 tasti: +1, −1, Contatore (mostra il num
 
 ## Come capisce che hai aperto una cassa
 
-Guarda lo schermo, come fa OBS: c'è la scritta per aprire la cassa, premi il tasto, la scritta sparisce → cassa aperta.
+Guarda lo schermo, come fa OBS, e legge le parole vicino al mirino con la lettura del testo di Windows: c'è la scritta ESAMINA, premi il tasto, la scritta sparisce → cassa aperta.
 Contano tutte le casse (oro, argento, quelle col cristallo...). Le cassette di munizioni hanno la stessa scritta ma sono verdi, quindi non contano.
 
 ## È sicuro?
@@ -58,8 +59,8 @@ Contano tutte le casse (oro, argento, quelle col cristallo...). Le cassette di m
 ## Non conta?
 
 1. Controlla il punto 1 (Schermo intero in finestra).
-2. In partita **mira una cassa** finché compare la scritta per aprirla e premi **`Ctrl+Alt+C`**: ContaCasse impara la scritta del tuo gioco (serve se hai Fortnite in un'altra lingua o una scritta diversa).
-3. Nel pannello apri *Impostazioni avanzate* → *Cosa vedo adesso* mentre miri una cassa: la scritta deve diventare verde.
+2. Fortnite dev'essere in italiano (la parola che cerca è ESAMINA).
+3. Nel pannello apri *Impostazioni avanzate* → *Cosa vedo adesso* mentre miri una cassa: attorno alla parola ESAMINA compare un riquadro verde. Se c'è un errore sulla "lettura del testo", scrivici su Discord.
 
 Per tutto il resto: [Discord](https://discord.gg/NjnRuPt3hn).
 

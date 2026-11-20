@@ -1,5 +1,4 @@
-import json
-import os
+import asyncio
 import re
 import threading
 import time
@@ -8,15 +7,14 @@ from collections import deque
 import cv2
 import numpy as np
 
-FPS = 20
+FPS = 10
 FINESTRA_APERTURA = 2.5
-SPARITA_PER = 0.2
+SPARITA_PER = 0.3
 PAUSA = 1.0
 VERDE_MUNIZIONI = 0.25
 ORO_MINIMO = 0.15
-ALTEZZA_BASE = 1440
-FATTORI_HUD = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2)
 NERO_PER = 3.0
+PAROLA = "ESAMINA"
 
 
 def colori(img):
@@ -34,77 +32,91 @@ def e_munizioni(verde, oro, cfg=None):
     return verde >= float(cfg.get("verde_munizioni", VERDE_MUNIZIONI)) and oro < float(cfg.get("oro_minimo", ORO_MINIMO))
 
 
-def leggi_img(percorso):
-    try:
-        return cv2.imdecode(np.fromfile(percorso, np.uint8), cv2.IMREAD_COLOR)
-    except Exception:
-        return None
-
-
-def scrivi_img(percorso, img):
-    ok, buf = cv2.imencode(os.path.splitext(percorso)[1] or ".png", img)
-    if ok:
-        buf.tofile(percorso)
-    return ok
-
-
-def prepara(img):
+def nero_su_bianco(img):
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    return cv2.GaussianBlur(np.where(g >= 200, 255, 0).astype(np.uint8), (3, 3), 0)
+    return cv2.cvtColor(np.where(g >= 185, 0, 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
 
 
-def trova_scritta(frame):
-    H, W = frame.shape[:2]
-    cx, cy = W // 2, H // 2
-    x0, x1 = max(0, cx - int(0.03 * W)), min(W, cx + int(0.28 * W))
-    y0, y1 = max(0, cy - int(0.30 * H)), min(H, cy + int(0.18 * H))
-    g = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
-    bianco = (g >= 200).astype(np.uint8)
-    u = H / 1440.0
-    k = cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, int(14 * u)), max(1, int(3 * u))))
-    n, _, st, _ = cv2.connectedComponentsWithStats(cv2.dilate(bianco, k), 8)
-    cand = []
-    for i in range(1, n):
-        x, y, w, h, _ = st[i]
-        if not (9 * u <= h <= 30 * u and 14 * u <= w <= 0.25 * W):
-            continue
-        if not (0.10 <= bianco[y:y + h, x:x + w].mean() <= 0.65):
-            continue
-        sotto = g[y:y + h, x:x + w][bianco[y:y + h, x:x + w] == 0]
-        m = int(0.6 * h)
-        X0, Y0 = max(0, x - m), max(0, y - m)
-        cornice = g[Y0:y + h + m, X0:x + w + m][bianco[Y0:y + h + m, X0:x + w + m] == 0]
-        if sotto.size == 0 or np.median(sotto) > 95 or np.median(cornice) > 100:
-            continue
-        cand.append([x, y, w, h])
-    cand.sort(key=lambda b: b[0])
-    gruppi = []
-    for b in cand:
-        for gr in gruppi:
-            gx, gy, gw, gh = gr
-            sovr = min(gy + gh, b[1] + b[3]) - max(gy, b[1])
-            if sovr > 0.5 * min(gh, b[3]) and b[0] - (gx + gw) < 4 * max(gh, b[3]):
-                nx, ny = min(gx, b[0]), min(gy, b[1])
-                gr[:] = [nx, ny, max(gx + gw, b[0] + b[2]) - nx, max(gy + gh, b[1] + b[3]) - ny]
-                break
-        else:
-            gruppi.append(list(b))
-    gruppi = [b for b in gruppi if b[2] >= 3 * b[3] and b[2] >= 50 * u and x0 + b[0] >= cx - 0.02 * W]
-    if not gruppi:
-        return None
-
-    def dist(b):
-        return ((x0 + b[0] + b[2] / 2 - cx) ** 2 + (y0 + b[1] + b[3] / 2 - cy) ** 2) ** 0.5
-    x, y, w, h = min(gruppi, key=lambda b: (-min(b[2], 12 * b[3]), dist(b)))
-    m = int(0.35 * h)
-    return (max(0, x0 + x - m), max(0, y0 + y - m), w + 2 * m, h + 2 * m)
+def simile(parola, cercata):
+    if cercata in parola:
+        return True
+    if abs(len(parola) - len(cercata)) > 1:
+        return False
+    a, b = (parola, cercata) if len(parola) <= len(cercata) else (cercata, parola)
+    diversi = 0
+    i = j = 0
+    while i < len(a) and j < len(b):
+        if a[i] != b[j]:
+            diversi += 1
+            if diversi > 1:
+                return False
+            if len(a) < len(b):
+                j += 1
+                continue
+        i += 1
+        j += 1
+    return diversi + (len(b) - j) <= 1
 
 
-def somiglianza_scritte(a, b):
-    grande = cv2.copyMakeBorder(a, 40, 40, 80, 80, cv2.BORDER_CONSTANT, value=0)
-    if grande.shape[0] < b.shape[0] or grande.shape[1] < b.shape[1]:
-        return 0.0
-    return float(cv2.minMaxLoc(cv2.matchTemplate(grande, b, cv2.TM_CCOEFF_NORMED))[1])
+PACCHETTI_OCR = ["winrt-runtime", "winrt-Windows.Foundation", "winrt-Windows.Foundation.Collections",
+                 "winrt-Windows.Globalization", "winrt-Windows.Graphics.Imaging", "winrt-Windows.Media.Ocr",
+                 "winrt-Windows.Security.Cryptography", "winrt-Windows.Storage.Streams"]
+
+
+def installa_ocr():
+    import importlib
+    import subprocess
+    import sys
+    if getattr(sys, "frozen", False):
+        return False
+    print("Installo la lettura del testo di Windows (solo la prima volta)...", flush=True)
+    utente = ["--user"] if sys.prefix == sys.base_prefix else []
+    r = subprocess.run([sys.executable, "-m", "pip", "install", *utente, "--disable-pip-version-check", *PACCHETTI_OCR])
+    importlib.invalidate_caches()
+    import site
+    if site.ENABLE_USER_SITE and site.getusersitepackages() not in sys.path:
+        sys.path.append(site.getusersitepackages())
+    return r.returncode == 0
+
+
+class Lettore:
+    def __init__(self):
+        self.motore = None
+        self.errore = None
+        try:
+            try:
+                from winrt.windows.media.ocr import OcrEngine
+            except ImportError:
+                if not installa_ocr():
+                    raise
+                from winrt.windows.media.ocr import OcrEngine
+            self.motore = OcrEngine.try_create_from_user_profile_languages()
+            if self.motore is None:
+                langs = list(OcrEngine.available_recognizer_languages)
+                if langs:
+                    self.motore = OcrEngine.try_create_from_language(langs[0])
+            if self.motore is None:
+                self.errore = "Windows non ha una lingua con la lettura del testo (OCR) installata"
+        except Exception as e:
+            self.errore = f"lettura del testo di Windows non disponibile ({e})"
+
+    def leggi(self, img):
+        from winrt.windows.graphics.imaging import BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap
+        from winrt.windows.security.cryptography import CryptographicBuffer
+        bgra = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+        h, w = bgra.shape[:2]
+        buf = CryptographicBuffer.create_from_byte_array(bgra.tobytes())
+        bmp = SoftwareBitmap.create_copy_from_buffer(buf, BitmapPixelFormat.BGRA8, w, h, BitmapAlphaMode.PREMULTIPLIED)
+
+        async def vai():
+            return await self.motore.recognize_async(bmp)
+        risultato = asyncio.run(vai())
+        parole = []
+        for riga in risultato.lines:
+            for p in riga.words:
+                r = p.bounding_rect
+                parole.append((p.text, (int(r.x), int(r.y), int(r.width), int(r.height))))
+        return parole
 
 
 def uscite():
@@ -209,173 +221,46 @@ class Cattura:
 
 
 class Occhio:
-    def __init__(self, app, cartella, scritta_base):
+    def __init__(self, app):
         self.app = app
-        self.dir_modelli = os.path.join(cartella, "modelli")
-        os.makedirs(self.dir_modelli, exist_ok=True)
-        self.file_modelli = os.path.join(cartella, "modelli.json")
-        self.base = leggi_img(scritta_base) if scritta_base else None
+        self.lettore = Lettore()
         self.schermo = None
-        self.modelli = []
-        self.attivi = []
-        self.carica()
         self.cattura = None
         self.errore = None
         self.attivo = False
-        self.richiesta_foto = None
-        self.foto = None
         self.visto = None
-        self.punteggio = 0.0
+        self.parole_viste = []
         self.visibile = False
         self.ultimo_visibile = 0.0
         self.sparita_da = 0.0
         self.attesa = None
         self.bloccato_fino = 0.0
         self.ultimo_evento = 0.0
-        self.picco = 0.0
         self.avviso_nero = 0.0
         self.nero_da = 0.0
-        self.varianti = []
-        self.giro = 0
         self.verde = 0.0
         self.oro = 0.0
         self.storia_colori = deque(maxlen=200)
+        self.giro = 0
+        self.trovata_prima = False
 
-    def carica(self):
-        try:
-            with open(self.file_modelli, "r", encoding="utf-8-sig") as f:
-                lista = json.load(f)
-        except Exception:
-            lista = []
-        modelli = []
-        for m in lista:
-            img = leggi_img(os.path.join(self.dir_modelli, "colore-" + m["file"]))
-            if img is not None:
-                m = dict(m)
-                m["img"] = prepara(img)
-                modelli.append(m)
-        self.modelli = modelli
-        self._scegli_attivi()
-
-    def _variante(self, s):
-        return prepara(cv2.resize(self.base, None, fx=s, fy=s, interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC))
-
-    def _modello_base(self, W, H):
-        s = H / ALTEZZA_BASE
-        self.varianti = [(f, self._variante(s * f)) for f in FATTORI_HUD]
-        scelta = float(self.app.config.get("scala_hud", 1.0))
-        img = dict(self.varianti).get(scelta, self.varianti[FATTORI_HUD.index(1.0)][1])
-        g = s * max(FATTORI_HUD)
-        x0, y0 = int(W / 2 - 190 * g), int(H / 2 - 350 * g)
-        w, h = int(810 * g), int(680 * g)
-        x0, y0 = max(0, x0), max(0, y0)
-        return {"file": "base", "nome": "E ESAMINA", "base": True, "w": img.shape[1], "h": img.shape[0],
-                "cerca": [x0, y0, min(w, W - x0), min(h, H - y0)], "schermo": [W, H],
-                "monitor": self.app.config.get("monitor", 0), "img": img}
-
-    def _scegli_attivi(self):
-        if not self.schermo:
-            self.attivi = []
-            return
-        W, H = self.schermo
-        attivi = [m for m in self.modelli if m.get("schermo") == [W, H]]
-        if self.base is not None:
-            attivi.insert(0, self._modello_base(W, H))
-        self.attivi = attivi
-
-    def salva_elenco(self):
-        dati = [{k: v for k, v in m.items() if k != "img"} for m in self.modelli]
-        tmp = self.file_modelli + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(dati, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, self.file_modelli)
-
-    def pubblici(self):
-        return [{k: v for k, v in m.items() if k != "img"} for m in self.attivi]
-
-    def aggiungi_modello(self, x, y, w, h, nome):
-        if self.foto is None:
-            raise RuntimeError("prima cattura lo schermo")
-        H, W = self.foto.shape[:2]
-        x, y = max(0, int(x)), max(0, int(y))
-        w, h = min(int(w), W - x), min(int(h), H - y)
-        if w < 12 or h < 8:
-            raise ValueError("il riquadro e' troppo piccolo")
-        if w > 0.3 * W or h > 0.15 * H:
-            raise ValueError("il riquadro e' troppo grande: ritaglia SOLO la scritta (il rettangolo scuro "
-                             "con la E e la parola), NON la cassa")
-        ritaglio = self.foto[y:y + h, x:x + w]
-        if int((prepara(ritaglio) > 128).sum()) < 30:
-            raise ValueError("nel riquadro non c'e' testo bianco: ritaglia la scritta con la E")
-        mx, my = max(300, w), max(300, 3 * h)
-        cx, cy = max(0, x - mx), max(0, y - my)
-        cw, ch = min(W - cx, w + 2 * mx), min(H - cy, h + 2 * my)
-        file = time.strftime("%Y%m%d-%H%M%S") + ".png"
-        scrivi_img(os.path.join(self.dir_modelli, file), prepara(ritaglio))
-        scrivi_img(os.path.join(self.dir_modelli, "colore-" + file), ritaglio)
-        m = {"file": file, "nome": (nome or "Scritta").strip()[:40], "x": x, "y": y, "w": w, "h": h,
-             "cerca": [cx, cy, cw, ch], "monitor": self.app.config.get("monitor", 0),
-             "schermo": [W, H], "img": prepara(ritaglio)}
-        self.modelli.append(m)
-        self.salva_elenco()
-        self._scegli_attivi()
-        return m
-
-    def elimina_modello(self, file):
-        if file == "base":
-            raise ValueError("la scritta di base non si puo' togliere")
-        self.modelli = [m for m in self.modelli if m["file"] != file]
-        for f in (file, "colore-" + file):
-            p = os.path.join(self.dir_modelli, os.path.basename(f))
-            if os.path.exists(p):
-                os.remove(p)
-        self.salva_elenco()
-        self._scegli_attivi()
-
-    def fai_foto(self, ritardo):
-        ev = threading.Event()
-        self.richiesta_foto = (time.time() + ritardo, ev)
-        return ev
-
-    def modello_png(self, file):
-        if file == "base":
-            return self.base
-        p = os.path.join(self.dir_modelli, "colore-" + os.path.basename(file))
-        return leggi_img(p) if os.path.isfile(p) else None
-
-    def configura(self, ritardo=0.0):
-        if not self.fai_foto(ritardo).wait(ritardo + 5) or self.foto is None:
-            raise RuntimeError("lo schermo non si riesce a catturare")
-        r = trova_scritta(self.foto)
-        if r is None:
-            raise ValueError("non vedo la scritta per aprire la cassa: mira una cassa finche' compare e riprova")
-        x, y, w, h = r
-        nuova = prepara(self.foto[y:y + h, x:x + w])
-        for m in self.attivi:
-            if somiglianza_scritte(nuova, m["img"]) >= 0.9:
-                return m, True
-        return self.aggiungi_modello(x, y, w, h, "Scritta imparata"), False
+    def parola(self):
+        return str(self.app.config.get("parola", PAROLA)).upper().replace(" ", "") or PAROLA
 
     def tasto_premuto(self, t):
-        if t - self.ultimo_visibile <= 0.25 and self.attivi:
+        if t - self.ultimo_visibile <= 0.4:
             self.attesa = t
+
+    def _zona(self):
+        W, H = self.schermo or (2560, 1440)
+        x0, x1 = int(W / 2 - 0.08 * W), int(W / 2 + 0.33 * W)
+        y0, y1 = int(H / 2 - 0.32 * H), int(H / 2 + 0.22 * H)
+        return max(0, x0), max(0, y0), min(W, x1) - max(0, x0), min(H, y1) - max(0, y0)
 
     def _mirino(self):
         W, H = self.schermo or (2560, 1440)
-        r = max(20, int(60 * H / ALTEZZA_BASE))
+        r = max(20, int(60 * H / 1440))
         return W // 2 - r, H // 2 - r, 2 * r, 2 * r
-
-    def _zona_totale(self):
-        ox, oy, ow, oh = self._mirino()
-        X = min([m["cerca"][0] for m in self.attivi] + [ox])
-        Y = min([m["cerca"][1] for m in self.attivi] + [oy])
-        X2 = max([m["cerca"][0] + m["cerca"][2] for m in self.attivi] + [ox + ow])
-        Y2 = max([m["cerca"][1] + m["cerca"][3] for m in self.attivi] + [oy + oh])
-        return X, Y, X2, Y2
-
-    def _colori(self, zona, X, Y):
-        mx, my, mw, mh = self._mirino()
-        return colori(zona[my - Y:my - Y + mh, mx - X:mx - X + mw])
 
     def avvia(self):
         threading.Thread(target=self._ciclo, daemon=True, name="schermo").start()
@@ -398,6 +283,8 @@ class Occhio:
                 time.sleep(2)
 
     def _guarda(self):
+        if self.lettore.motore is None:
+            raise RuntimeError(self.lettore.errore or "lettura del testo non disponibile")
         monitor = int(self.app.config.get("monitor", 0))
         self.cattura = Cattura(monitor)
         intero = self.cattura.grab(None)
@@ -405,12 +292,9 @@ class Occhio:
             raise RuntimeError("non riesco a vedere lo schermo")
         H, W = intero.shape[:2]
         self.schermo = (W, H)
-        self._scegli_attivi()
         self.errore = None
         self.attivo = True
-        self.app.scrivi(f"Guardo lo schermo {monitor + 1} ({W}x{H})")
-        if not self.attivi:
-            self.app.scrivi("Non ho nessuna scritta da cercare: l'immagine di base non si e' caricata", "errore")
+        self.app.scrivi(f"Guardo lo schermo {monitor + 1} ({W}x{H}) e cerco la scritta {self.parola()}")
         self.app.pubblica_stato()
         while True:
             t0 = time.time()
@@ -420,50 +304,33 @@ class Occhio:
                 self.cattura.chiudi()
                 self.cattura = None
                 return
-            r = self.richiesta_foto
-            if r is not None and t0 >= r[0]:
-                self.richiesta_foto = None
-                f = self.cattura.grab(None)
-                self.foto = None if f is None else f.copy()
-                if self.foto is not None and float(self.foto.mean()) < 3:
-                    self.app.scrivi("Lo schermo catturato e' NERO: in Fortnite metti Modalita' finestra "
-                                    "'Schermo intero in finestra' (o prova l'altro schermo)", "errore")
-                r[1].set()
-            if cfg.get("usa_schermo", True) and self.attivi:
+            if cfg.get("usa_schermo", True):
                 self._un_giro(t0, cfg)
             time.sleep(max(0.0, 1.0 / FPS - (time.time() - t0)))
 
     def _un_giro(self, adesso, cfg):
-        X, Y, X2, Y2 = self._zona_totale()
-        zona = self.cattura.grab((X, Y, X2 - X, Y2 - Y))
+        X, Y, Wz, Hz = self._zona()
+        zona = self.cattura.grab((X, Y, Wz, Hz))
         if zona is None:
             return
         self.visto = zona
-        self.verde, self.oro = self._colori(zona, X, Y)
+        mx, my, mw, mh = self._mirino()
+        self.verde, self.oro = colori(zona[my - Y:my - Y + mh, mx - X:mx - X + mw])
+        self.storia_colori.append((adesso, self.verde, self.oro))
         self._controlla_nero(zona, adesso)
-        grigio = prepara(zona)
-        soglia = float(cfg.get("soglia_schermo", 0.8))
-        migliore = 0.0
+        H = self.schermo[1]
+        k = 1.0 if H >= 1300 else 1300 / H
+        immagine = zona if k == 1.0 else cv2.resize(zona, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC)
+        cercata = self.parola()
         self.giro += 1
-        for m in self.attivi:
-            cx, cy, cw, ch = m["cerca"]
-            pezzo = grigio[cy - Y:cy - Y + ch, cx - X:cx - X + cw]
-            v = self._confronta(pezzo, m["img"])
-            if m.get("base") and self.varianti:
-                f, altra = self.varianti[self.giro % len(self.varianti)]
-                if altra.shape != m["img"].shape:
-                    v2 = self._confronta(pezzo, altra)
-                    if v2 >= soglia and v2 > v + 0.03:
-                        m["img"], m["w"], m["h"] = altra, altra.shape[1], altra.shape[0]
-                        self.app.aggiorna_config({"scala_hud": f})
-                        self.app.scrivi(f"La scritta sul tuo schermo e' al {int(f * 100)}%: mi adatto")
-                        v = v2
-            migliore = max(migliore, v)
-        self.punteggio = migliore
-        self.picco = max(self.picco, migliore)
-        ora_visibile = migliore >= soglia
+        prepara = nero_su_bianco if self.giro % 2 else (lambda x: x)
+        parole = self.lettore.leggi(prepara(immagine))
+        self.parole_viste = [(t, tuple(int(v / k) for v in r), simile(re.sub(r"[^A-Z]", "", t.upper()), cercata))
+                             for t, r in parole]
+        trovata = any(s for _, _, s in self.parole_viste)
+        ora_visibile = trovata or self.trovata_prima
+        self.trovata_prima = trovata
         if ora_visibile:
-            self.storia_colori.append((adesso, self.verde, self.oro))
             self.ultimo_visibile = adesso
             self.sparita_da = 0.0
         elif self.visibile:
@@ -472,11 +339,11 @@ class Occhio:
 
         a = self.attesa
         if a is not None:
-            sparita = (not ora_visibile and self.sparita_da and self.sparita_da >= a - 0.05
+            sparita = (not ora_visibile and self.sparita_da and self.sparita_da >= a - 0.1
                        and adesso - self.sparita_da >= SPARITA_PER)
             if sparita and adesso - a <= FINESTRA_APERTURA + SPARITA_PER:
                 self.attesa = None
-                valori = [(v, o) for (t, v, o) in self.storia_colori if t >= a - 0.5]
+                valori = [(v, o) for (t, v, o) in self.storia_colori if a - 0.5 <= t <= a + 0.2]
                 if valori:
                     verde, oro = (float(x) for x in np.median(np.array(valori), axis=0))
                 else:
@@ -489,21 +356,15 @@ class Occhio:
             elif adesso - a > FINESTRA_APERTURA + SPARITA_PER:
                 self.attesa = None
                 if ora_visibile:
-                    self.app.scrivi("E sulla cassa ma la scritta e' rimasta: non aperta, non conto")
+                    self.app.scrivi(f"E sulla cassa ma {cercata} e' rimasta: non aperta, non conto")
 
         if adesso - self.ultimo_evento >= 0.1:
             self.ultimo_evento = adesso
-            self.app.bacheca.pubblica("schermo", {"s": round(self.picco, 3), "vis": self.visibile,
+            self.app.bacheca.pubblica("schermo", {"vis": self.visibile, "parola": cercata,
+                                                  "lette": [t for t, _, _ in self.parole_viste][:6],
                                                   "verde": round(self.verde, 2), "oro": round(self.oro, 2),
                                                   "munizioni": e_munizioni(self.verde, self.oro, self.app.config)},
                                       solo_pannello=True)
-            self.picco = 0.0
-
-    @staticmethod
-    def _confronta(pezzo, t):
-        if pezzo.shape[0] < t.shape[0] or pezzo.shape[1] < t.shape[1]:
-            return 0.0
-        return float(cv2.matchTemplate(pezzo, t, cv2.TM_CCOEFF_NORMED).max())
 
     def _controlla_nero(self, zona, adesso):
         if int(zona.max()) >= 20:
@@ -530,31 +391,17 @@ class Occhio:
 
     def immagine_visto(self):
         z = self.visto
-        if z is None or not self.attivi:
+        if z is None:
             return None
         img = z.copy()
-        X, Y, X2, Y2 = self._zona_totale()
-        if img.shape[1] < X2 - X or img.shape[0] < Y2 - Y:
-            return img
-        g = prepara(z)
-        soglia = float(self.app.config.get("soglia_schermo", 0.8))
-        for m in self.attivi:
-            cx, cy, cw, ch = m["cerca"]
-            cv2.rectangle(img, (cx - X, cy - Y), (cx - X + cw - 1, cy - Y + ch - 1), (90, 90, 90), 1)
-            pezzo = g[cy - Y:cy - Y + ch, cx - X:cx - X + cw]
-            t = m["img"]
-            if pezzo.shape[0] >= t.shape[0] and pezzo.shape[1] >= t.shape[1]:
-                _, v, _, (px, py) = cv2.minMaxLoc(cv2.matchTemplate(pezzo, t, cv2.TM_CCOEFF_NORMED))
-                col = (80, 220, 60) if v >= soglia else (60, 60, 230)
-                cv2.rectangle(img, (cx - X + px, cy - Y + py), (cx - X + px + t.shape[1], cy - Y + py + t.shape[0]),
-                              col, 2)
-                cv2.putText(img, f"{v:.2f}", (cx - X + px, max(12, cy - Y + py - 4)), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5, col, 1)
+        X, Y, _, _ = self._zona()
+        for testo, (x, y, w, h), giusta in self.parole_viste:
+            col = (80, 220, 60) if giusta else (120, 120, 120)
+            cv2.rectangle(img, (x, y), (x + w, y + h), col, 2 if giusta else 1)
         mx, my, mw, mh = self._mirino()
-        vv, oo = self._colori(z, X, Y)
-        no = e_munizioni(vv, oo, self.app.config)
+        no = e_munizioni(self.verde, self.oro, self.app.config)
         col = (200, 80, 200) if no else (40, 200, 255)
         cv2.rectangle(img, (mx - X, my - Y), (mx - X + mw, my - Y + mh), col, 2)
-        cv2.putText(img, f"verde {vv:.2f}" + (" NO" if no else ""), (mx - X + 4, my - Y + mh - 6),
+        cv2.putText(img, f"verde {self.verde:.2f}" + (" NO" if no else ""), (mx - X + 4, my - Y + mh - 6),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 1)
         return img
